@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kyndryl · Dashboard de Entregas y Pendientes</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+:root {
+  --k-red: #FF462D;
+  --k-red-dark: #C92A15;
+  --k-charcoal: #141414;
+  --k-slate: #1E1E22;
+  --k-canvas: #EEF2F8;
+  --k-panel: #FFFFFF;
+  --k-border: #DCE3EE;
+  --k-border-subtle: #EDF2F9;
+  --k-text: #0F172A;
+  --k-text-muted: #64748B;
+  
+  /* Status Colors */
+  --s-entregado: #059669; /* Verde */
+  --s-pendiente: #D97706; /* Ambar */
+  --s-nomigrado: #0284C7; /* Azul */
+  --s-desestimado: #94A3B8; /* Gris */
+  --s-otros: #64748B;
+  
+  --nav-w: 260px;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; height: 100%; }
+body { background: var(--k-canvas); color: var(--k-text); font-family: 'Inter', system-ui, sans-serif; font-size: 13.5px; line-height: 1.45; -webkit-font-smoothing: antialiased; }
+h1, h2, h3, h4 { margin: 0; font-weight: 700; letter-spacing: -0.02em; }
+button { font-family: inherit; cursor: pointer; }
+.mono { font-family: 'JetBrains Mono', monospace; }
+.hide { display: none !important; }
+.num { font-variant-numeric: tabular-nums; }
+
+/* Layout Shell */
+.shell { display: flex; min-height: 100vh; flex-direction: column; }
+.topbar { background: var(--k-charcoal); color: #fff; padding: 16px 24px; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 40; border-bottom: 3px solid var(--k-red); }
+.brand { display: flex; align-items: center; gap: 12px; }
+.kyndryl-peru-badge { display: inline-flex; align-items: center; gap: 8px; background: #1C1210; border: 1px solid var(--k-red); border-radius: 6px; padding: 6px 12px; font-size: 13px; font-weight: 800; letter-spacing: 0.05em; color: #fff; }
+.kyndryl-peru-badge .badge-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--k-red); box-shadow: 0 0 6px var(--k-red); }
+.topbar-title h1 { font-size: 18px; margin: 0; }
+.topbar-title p { margin: 2px 0 0; font-size: 12px; color: #94A3B8; font-weight: 500; }
+
+.stage { flex: 1; padding: 24px; display: flex; flex-direction: column; gap: 20px; max-width: 1600px; margin: 0 auto; width: 100%; }
+
+/* Buttons */
+.btn { border: 1px solid transparent; font-weight: 600; font-size: 13px; padding: 8px 16px; border-radius: 6px; transition: all 0.2s; display: inline-flex; align-items: center; gap: 6px; justify-content: center; }
+.btn.primary { background: var(--k-red); color: #fff; border-color: var(--k-red); }
+.btn.primary:hover { background: var(--k-red-dark); }
+.btn.ghost { background: rgba(255,255,255,0.1); color: #fff; border-color: rgba(255,255,255,0.2); }
+.btn.ghost:hover { background: rgba(255,255,255,0.2); }
+.btn.outline { background: #fff; color: var(--k-charcoal); border-color: var(--k-border); }
+.btn.outline:hover { border-color: var(--k-charcoal); }
+
+/* Upload Gate */
+.gate { position: fixed; inset: 0; background: radial-gradient(circle at center, #262626, #141414); z-index: 100; display: flex; align-items: center; justify-content: center; padding: 24px; }
+.gatebox { background: #fff; border-radius: 16px; max-width: 580px; width: 100%; padding: 40px; box-shadow: 0 25px 60px rgba(0,0,0,0.35); text-align: center; }
+.gatebox .k-bar { width: 44px; height: 5px; background: var(--k-red); margin: 0 auto 20px; border-radius: 3px; }
+.dz { border: 2px dashed #CBD5E1; border-radius: 12px; padding: 40px 20px; margin-top: 24px; background: #F8FAFC; cursor: pointer; transition: all 0.2s; }
+.dz:hover, .dz.dragover { border-color: var(--k-red); background: rgba(255,70,45,0.04); }
+
+/* Grid Layouts */
+.row { display: grid; gap: 20px; }
+.r-5 { grid-template-columns: repeat(5, 1fr); }
+.r-3 { grid-template-columns: repeat(3, 1fr); }
+.r-2 { grid-template-columns: 1fr 1fr; }
+.r-2-1 { grid-template-columns: 2fr 1fr; }
+@media(max-width: 1200px) { .r-5 { grid-template-columns: repeat(3, 1fr); } .r-2-1 { grid-template-columns: 1fr; } }
+@media(max-width: 768px) { .r-5, .r-3, .r-2 { grid-template-columns: 1fr; } }
+
+/* Tiles & KPIs */
+.tile { background: var(--k-panel); border: 1px solid var(--k-border); border-radius: 12px; box-shadow: 0 2px 6px rgba(0,0,0,0.02), 0 10px 30px rgba(0,0,0,0.04); padding: 20px; display: flex; flex-direction: column; }
+.tile.chart-tile { min-height: 380px; }
+.th { margin-bottom: 16px; border-bottom: 1px solid var(--k-border-subtle); padding-bottom: 12px; }
+.th h3 { font-size: 15px; color: var(--k-charcoal); display: flex; justify-content: space-between; align-items: center; }
+.th .sub { font-size: 12px; color: var(--k-text-muted); margin-top: 4px; font-weight: 500; }
+
+.kpi { position: relative; overflow: hidden; }
+.kpi::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 5px; border-radius: 4px 0 0 4px; }
+.kpi .lbl { font-size: 12px; font-weight: 700; text-transform: uppercase; color: var(--k-text-muted); letter-spacing: 0.04em; }
+.kpi .val { font-size: 32px; font-weight: 800; color: var(--k-charcoal); margin: 6px 0 2px; line-height: 1; }
+.kpi .sub { font-size: 12px; color: var(--k-text-muted); font-weight: 500; }
+
+.kpi.total::before { background: var(--k-charcoal); }
+.kpi.srv::before { background: var(--k-red); }
+.kpi.pend::before { background: var(--s-pendiente); }
+.kpi.pend .val { color: var(--s-pendiente); }
+.kpi.ent::before { background: var(--s-entregado); }
+.kpi.ent .val { color: var(--s-entregado); }
+.kpi.nomig::before { background: var(--s-nomigrado); }
+
+/* Tables */
+.tw { overflow: auto; border-radius: 8px; border: 1px solid var(--k-border-subtle); max-height: 400px; }
+table.dt { width: 100%; border-collapse: collapse; font-size: 13px; text-align: left; }
+table.dt th { position: sticky; top: 0; z-index: 2; background: #F8FAFC; color: var(--k-text-muted); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; padding: 12px 14px; border-bottom: 1px solid var(--k-border); white-space: nowrap; }
+table.dt td { padding: 10px 14px; border-bottom: 1px solid var(--k-border-subtle); vertical-align: middle; }
+table.dt tbody tr:hover { background: #F1F5F9; }
+table.dt tbody tr:last-child td { border-bottom: none; }
+
+/* Progress Bar */
+.prog-bar-container { background: #E2E8F0; border-radius: 6px; overflow: hidden; height: 16px; width: 100%; min-width: 100px; display: flex; position: relative; }
+.prog-bar-fill { height: 100%; background: var(--s-entregado); transition: width 0.4s ease; }
+.prog-text { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 800; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,0.4); mix-blend-mode: overlay; }
+
+/* Tags / Pills */
+.tag { display: inline-flex; align-items: center; padding: 3px 8px; border-radius: 6px; font-size: 11.5px; font-weight: 700; border: 1px solid; white-space: nowrap; }
+.tag.pend { border-color: rgba(217,119,6,0.3); background: rgba(217,119,6,0.1); color: var(--s-pendiente); }
+.tag.ent { border-color: rgba(5,150,105,0.3); background: rgba(5,150,105,0.1); color: var(--s-entregado); }
+.tag.nomig { border-color: rgba(2,132,199,0.3); background: rgba(2,132,199,0.1); color: var(--s-nomigrado); }
+.tag.des { border-color: rgba(148,163,184,0.4); background: rgba(148,163,184,0.15); color: var(--s-desestimado); }
+.tag.otros { border-color: var(--k-border); background: #F8FAFC; color: var(--k-text-muted); }
+
+.filter-pills { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+.pill { padding: 6px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; cursor: pointer; border: 1px solid var(--k-border); background: #fff; color: var(--k-text-muted); transition: all 0.2s; user-select: none; }
+.pill:hover { background: #F1F5F9; border-color: #CBD5E1; }
+.pill.active { background: var(--k-charcoal); color: #fff; border-color: var(--k-charcoal); }
+
+.cbox { position: relative; flex: 1 1 auto; width: 100%; min-height: 250px; }
+</style>
+</head>
+<body>
+
+<!-- Upload Gate -->
+<div class="gate" id="gate">
+  <div class="gatebox">
+    <div class="k-bar"></div>
+    <div style="display:flex;justify-content:center;align-items:center;margin-bottom:16px;">
+      <div class="kyndryl-peru-badge">
+        <span class="badge-dot"></span>
+        <span>KYNDRYL PERÚ</span>
+      </div>
+    </div>
+    <h2 style="color:var(--k-charcoal); font-size: 24px; margin-bottom: 8px;">Control de Entregas y Pendientes</h2>
+    <p style="color:var(--k-text-muted); font-size: 14px; margin:0 0 24px;">Carga tu archivo Excel (.xlsx) que contenga las columnas: SR, Nombre del Servidor, Estado, Ambiente y Proyecto para generar el dashboard.</p>
+    
+    <div class="dz" id="dz">
+      <svg style="width: 48px; height: 48px; color: #94A3B8; margin-bottom: 12px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path></svg>
+      <div style="font-weight:700;font-size:16px;color:var(--k-charcoal);">Arrastra tu archivo Excel aquí</div>
+      <div style="font-size:13px;color:var(--k-text-muted);margin:6px 0 20px;">o selecciona el archivo desde tu equipo</div>
+      <button class="btn primary" id="pickBtn">Seleccionar Archivo</button>
+      <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" style="display:none">
+    </div>
+  </div>
+</div>
+
+<!-- Main App Shell -->
+<div class="shell hide" id="shell">
+  <!-- Topbar -->
+  <header class="topbar">
+    <div class="brand">
+      <div class="kyndryl-peru-badge">
+        <span class="badge-dot"></span>
+        <span>KYNDRYL</span>
+      </div>
+      <div class="topbar-title">
+        <h1>Dashboard de Entregas y Pendientes</h1>
+        <p id="lblFileInfo">Archivo cargado...</p>
+      </div>
+    </div>
+    <button class="btn ghost" id="btnChangeFile">
+      <svg style="width:16px;height:16px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+      Cambiar Archivo
+    </button>
+  </header>
+
+  <!-- Content Stage -->
+  <main class="stage">
+    
+    <!-- KPI Row -->
+    <div class="row r-5">
+      <div class="tile kpi total">
+        <div class="lbl">Total SRs (Tickets)</div>
+        <div class="val" id="kpi-srs">0</div>
+        <div class="sub">Tickets de Aprovisionamiento únicos</div>
+      </div>
+      <div class="tile kpi srv">
+        <div class="lbl">Total Servidores</div>
+        <div class="val" id="kpi-srvs">0</div>
+        <div class="sub">En ámbito total</div>
+      </div>
+      <div class="tile kpi pend">
+        <div class="lbl">Pendientes de Entrega</div>
+        <div class="val" id="kpi-pend">0</div>
+        <div class="sub">Requieren formalización</div>
+      </div>
+      <div class="tile kpi ent">
+        <div class="lbl">Entregados a IBK</div>
+        <div class="val" id="kpi-ent">0</div>
+        <div class="sub">Migración y entrega completada</div>
+      </div>
+      <div class="tile kpi nomig">
+        <div class="lbl">No Migrados / Otros</div>
+        <div class="val" id="kpi-nomig">0</div>
+        <div class="sub">Incluye desestimados o planificados</div>
+      </div>
+    </div>
+
+    <!-- Charts Row -->
+    <div class="row r-2-1">
+      <div class="tile chart-tile">
+        <div class="th">
+          <h3>Top 10 SRs con Mayor Volumen de Servidores</h3>
+          <div class="sub">Distribución interna de estados por cada Ticket (SR)</div>
+        </div>
+        <div class="cbox"><canvas id="barChart"></canvas></div>
+      </div>
+      <div class="tile chart-tile">
+        <div class="th">
+          <h3>Distribución Global de Estados</h3>
+          <div class="sub">Proporción del inventario total de servidores</div>
+        </div>
+        <div class="cbox"><canvas id="doughnutChart"></canvas></div>
+      </div>
+    </div>
+
+    <!-- Aggregated Table Row -->
+    <div class="row">
+      <div class="tile">
+        <div class="th">
+          <h3>Consolidado por Ticket (SR)</h3>
+          <div class="sub">Agrupación de servidores y cálculo de progreso de entrega formal.</div>
+        </div>
+        <div class="tw" style="max-height: 350px;">
+          <table class="dt">
+            <thead>
+              <tr>
+                <th>Ticket (SR)</th>
+                <th>Proyecto Principal</th>
+                <th style="text-align:center;">Total Srv</th>
+                <th style="text-align:center; color: var(--s-entregado);">Entregados</th>
+                <th style="text-align:center; color: var(--s-pendiente);">Pendientes</th>
+                <th style="text-align:center; color: var(--s-nomigrado);">No Migrados</th>
+                <th style="text-align:center; color: var(--s-desestimado);">Desestimados</th>
+                <th>% Avance de Entrega</th>
+              </tr>
+            </thead>
+            <tbody id="tbSrSummary"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Detail Table Row -->
+    <div class="row">
+      <div class="tile">
+        <div class="th" style="border-bottom:none; padding-bottom:0;">
+          <h3>Detalle de Servidores en Ámbito</h3>
+          <div class="sub">Explora el listado completo. Haz clic en las etiquetas para filtrar.</div>
+        </div>
+        <div class="filter-pills" id="detailFilters">
+          <div class="pill active" data-filter="all">Todos</div>
+          <div class="pill" data-filter="Entregado a IBK">Entregados</div>
+          <div class="pill" data-filter="Pendiente de entrega">Pendientes</div>
+          <div class="pill" data-filter="No migrados">No Migrados</div>
+          <div class="pill" data-filter="Desestimados">Desestimados</div>
+        </div>
+        <div class="tw">
+          <table class="dt">
+            <thead>
+              <tr>
+                <th>Nombre del Servidor</th>
+                <th>SR Asignado</th>
+                <th>Ambiente</th>
+                <th>Proyecto</th>
+                <th>Estado Actual</th>
+              </tr>
+            </thead>
+            <tbody id="tbServerDetail"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<script>
+"use strict";
+
+// --- Global State ---
+const state = {
+  rawRows: [],
+  srSummary: [],
+  charts: {},
+  currentFilter: 'all'
+};
+
+// --- Utilities ---
+const $ = s => document.querySelector(s);
+const $$ = s => document.querySelectorAll(s);
+const cleanKey = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
+const esc = str => String(str || '').replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
+const fmtNum = n => Number(n).toLocaleString('es-PE');
+
+// Theme Colors for charts
+const chartColors = {
+  'Entregado a IBK': '#059669', // var(--s-entregado)
+  'Pendiente de entrega': '#D97706', // var(--s-pendiente)
+  'No migrados': '#0284C7', // var(--s-nomigrado)
+  'Desestimados': '#94A3B8', // var(--s-desestimado)
+  'Otros': '#64748B' // var(--s-otros)
+};
+
+// --- Data Normalization ---
+function normalizeEstado(val) {
+  if (!val) return 'Otros';
+  const s = String(val).toLowerCase().trim();
+  
+  if (s.includes('entregad')) return 'Entregado a IBK';
+  if (s.includes('pendiente') || s.includes('pend.')) return 'Pendiente de entrega';
+  if (s.includes('no migrado') || s.includes('nomigrado')) return 'No migrados';
+  if (s.includes('desestimado') || s.includes('cancelado')) return 'Desestimados';
+  
+  return 'Otros';
+}
+
+function getTagClass(estado) {
+  if (estado === 'Entregado a IBK') return 'ent';
+  if (estado === 'Pendiente de entrega') return 'pend';
+  if (estado === 'No migrados') return 'nomig';
+  if (estado === 'Desestimados') return 'des';
+  return 'otros';
+}
+
+// --- Excel Processing ---
+async function processExcel(file) {
+  try {
+    $('#pickBtn').textContent = "Procesando...";
+    $('#pickBtn').disabled = true;
+
+    const buffer = await file.arrayBuffer();
+    const wb = XLSX.read(buffer, { type: 'array' });
+    const sheetName = wb.SheetNames[0]; // Take the first sheet
+    const sheet = wb.Sheets[sheetName];
+    const jsonData = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+
+    if (!jsonData || jsonData.length === 0) {
+      alert("El archivo parece estar vacío.");
+      return resetUploadBtn();
+    }
+
+    // Determine actual column names dynamically based on content
+    const firstRow = jsonData[0];
+    const keys = Object.keys(firstRow);
+    
+    let colSR = keys.find(k => cleanKey(k).includes('sr') || cleanKey(k).includes('ticket'));
+    let colSrv = keys.find(k => cleanKey(k).includes('servidor') || cleanKey(k).includes('host'));
+    let colEstado = keys.find(k => cleanKey(k).includes('estado') || cleanKey(k).includes('estatus'));
+    let colAmbiente = keys.find(k => cleanKey(k).includes('ambiente') || cleanKey(k).includes('env'));
+    let colProyecto = keys.find(k => cleanKey(k).includes('proyecto') || cleanKey(k).includes('project'));
+
+    const parsedData = [];
+    
+    jsonData.forEach(row => {
+      const sr = row[colSR] ? String(row[colSR]).trim() : 'Sin SR';
+      const srv = row[colSrv] ? String(row[colSrv]).trim() : '';
+      
+      // Skip empty rows or rows without a server name
+      if (!srv) return;
+
+      parsedData.push({
+        sr: sr,
+        servidor: srv,
+        estado: normalizeEstado(row[colEstado]),
+        ambiente: row[colAmbiente] ? String(row[colAmbiente]).trim().toUpperCase() : '-',
+        proyecto: row[colProyecto] ? String(row[colProyecto]).trim() : 'Sin Proyecto'
+      });
+    });
+
+    state.rawRows = parsedData;
+    $('#lblFileInfo').textContent = `Archivo: ${file.name} · ${fmtNum(parsedData.length)} registros`;
+    
+    calculateData();
+    renderApp();
+    
+    $('#gate').classList.add('hide');
+    $('#shell').classList.remove('hide');
+    resetUploadBtn();
+
+  } catch (error) {
+    console.error("Error reading file:", error);
+    alert("Error al procesar el archivo Excel. Asegúrate de que tenga el formato correcto.");
+    resetUploadBtn();
+  }
+}
+
+function resetUploadBtn() {
+  $('#pickBtn').textContent = "Seleccionar Archivo";
+  $('#pickBtn').disabled = false;
+  $('#fileInput').value = "";
+}
+
+// --- Data Aggregation ---
+function calculateData() {
+  const srMap = new Map();
+  
+  state.rawRows.forEach(r => {
+    if (!srMap.has(r.sr)) {
+      srMap.set(r.sr, {
+        sr: r.sr,
+        proyecto: r.proyecto,
+        total: 0,
+        entregados: 0,
+        pendientes: 0,
+        nomigrados: 0,
+        desestimados: 0,
+        otros: 0
+      });
+    }
+    const t = srMap.get(r.sr);
+    t.total++;
+    
+    if (r.estado === 'Entregado a IBK') t.entregados++;
+    else if (r.estado === 'Pendiente de entrega') t.pendientes++;
+    else if (r.estado === 'No migrados') t.nomigrados++;
+    else if (r.estado === 'Desestimados') t.desestimados++;
+    else t.otros++;
+  });
+
+  // Convert map to array and sort by total servers descending
+  state.srSummary = Array.from(srMap.values()).sort((a, b) => b.total - a.total);
+}
+
+// --- Rendering Logic ---
+function renderApp() {
+  renderKPIs();
+  renderCharts();
+  renderSummaryTable();
+  renderDetailTable();
+}
+
+function renderKPIs() {
+  const totSrs = state.srSummary.length;
+  const totSrvs = state.rawRows.length;
+  
+  let pend = 0, ent = 0, nomig = 0;
+  state.rawRows.forEach(r => {
+    if (r.estado === 'Pendiente de entrega') pend++;
+    if (r.estado === 'Entregado a IBK') ent++;
+    if (r.estado === 'No migrados' || r.estado === 'Desestimados' || r.estado === 'Otros') nomig++;
+  });
+
+  $('#kpi-srs').textContent = fmtNum(totSrs);
+  $('#kpi-srvs').textContent = fmtNum(totSrvs);
+  $('#kpi-pend').textContent = fmtNum(pend);
+  $('#kpi-ent').textContent = fmtNum(ent);
+  $('#kpi-nomig').textContent = fmtNum(nomig);
+}
+
+function renderCharts() {
+  // Clear old charts
+  if (state.charts.bar) state.charts.bar.destroy();
+  if (state.charts.doughnut) state.charts.doughnut.destroy();
+
+  // --- Doughnut Chart Data ---
+  const stateCounts = {
+    'Entregado a IBK': 0, 'Pendiente de entrega': 0, 'No migrados': 0, 'Desestimados': 0, 'Otros': 0
+  };
+  state.rawRows.forEach(r => {
+    if (stateCounts[r.estado] !== undefined) stateCounts[r.estado]++;
+  });
+
+  const dLabels = Object.keys(stateCounts).filter(k => stateCounts[k] > 0);
+  const dData = dLabels.map(k => stateCounts[k]);
+  const dBg = dLabels.map(k => chartColors[k]);
+
+  const ctxD = $('#doughnutChart').getContext('2d');
+  state.charts.doughnut = new Chart(ctxD, {
+    type: 'doughnut',
+    data: {
+      labels: dLabels,
+      datasets: [{ data: dData, backgroundColor: dBg, borderWidth: 0 }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false, cutout: '65%',
+      plugins: {
+        legend: { position: 'right', labels: { usePointStyle: true, boxWidth: 8, font: {family: 'Inter', size: 12} } }
+      }
+    }
+  });
+
+  // --- Bar Chart Data (Top 10 SRs) ---
+  const top10 = state.srSummary.slice(0, 10);
+  const bLabels = top10.map(s => s.sr);
+  
+  const bDatasets = [
+    { label: 'Entregado a IBK', backgroundColor: chartColors['Entregado a IBK'], data: top10.map(s => s.entregados) },
+    { label: 'Pendiente de entrega', backgroundColor: chartColors['Pendiente de entrega'], data: top10.map(s => s.pendientes) },
+    { label: 'No migrados', backgroundColor: chartColors['No migrados'], data: top10.map(s => s.nomigrados) },
+    { label: 'Desestimados', backgroundColor: chartColors['Desestimados'], data: top10.map(s => s.desestimados) }
+  ];
+
+  const ctxB = $('#barChart').getContext('2d');
+  state.charts.bar = new Chart(ctxB, {
+    type: 'bar',
+    data: { labels: bLabels, datasets: bDatasets.filter(ds => ds.data.some(v => v > 0)) },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      scales: {
+        x: { stacked: true, grid: { display: false }, ticks: { font: { family: 'JetBrains Mono', size: 11 } } },
+        y: { stacked: true, beginAtZero: true, grid: { color: 'rgba(0,0,0,0.05)' } }
+      },
+      plugins: {
+        legend: { position: 'bottom', labels: { usePointStyle: true, boxWidth: 8, font: {family: 'Inter', size: 11} } }
+      }
+    }
+  });
+}
+
+function renderSummaryTable() {
+  const html = state.srSummary.map(s => {
+    // Calculo de avance neto (desestimados no suman al total para el %)
+    const neto = s.total - s.desestimados;
+    let pct = 0;
+    if (neto > 0) {
+       pct = Math.round((s.entregados / neto) * 100);
+    } else if (s.total > 0 && s.total === s.desestimados) {
+       pct = 100; // Si todos son desestimados, está "completado"
+    }
+    
+    // Bar styling based on progress
+    let fillStyle = `width: ${pct}%;`;
+    if (pct < 100 && pct > 0) fillStyle += ` background: var(--s-pendiente);`;
+    if (pct === 0) fillStyle += ` background: transparent;`;
+
+    return `
+      <tr>
+        <td class="mono" style="font-weight:700; color:var(--k-text);">${esc(s.sr)}</td>
+        <td style="max-width:180px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${esc(s.proyecto)}">${esc(s.proyecto)}</td>
+        <td style="text-align:center; font-weight:700;">${s.total}</td>
+        <td style="text-align:center; font-weight:700; color:var(--s-entregado);">${s.entregados || '-'}</td>
+        <td style="text-align:center; font-weight:700; color:var(--s-pendiente);">${s.pendientes || '-'}</td>
+        <td style="text-align:center; font-weight:600; color:var(--s-nomigrado);">${s.nomigrados || '-'}</td>
+        <td style="text-align:center; font-weight:500; color:var(--s-desestimado);">${s.desestimados || '-'}</td>
+        <td>
+          <div style="display:flex; align-items:center; gap:8px;">
+            <div class="prog-bar-container">
+              <div class="prog-bar-fill" style="${fillStyle}"></div>
+              <div class="prog-text" style="color: ${pct > 40 ? '#fff' : 'var(--k-charcoal)'};">${pct}%</div>
+            </div>
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('');
+  
+  $('#tbSrSummary').innerHTML = html;
+}
+
+function renderDetailTable() {
+  const f = state.currentFilter;
+  const filtered = f === 'all' ? state.rawRows : state.rawRows.filter(r => r.estado === f);
+
+  const html = filtered.slice(0, 500).map(r => `
+    <tr>
+      <td class="mono" style="font-weight:700; color:var(--k-charcoal);">${esc(r.servidor)}</td>
+      <td class="mono">${esc(r.sr)}</td>
+      <td>${esc(r.ambiente)}</td>
+      <td style="max-width:200px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${esc(r.proyecto)}">${esc(r.proyecto)}</td>
+      <td><span class="tag ${getTagClass(r.estado)}">${esc(r.estado)}</span></td>
+    </tr>
+  `).join('');
+
+  let suffix = filtered.length > 500 ? `<tr><td colspan="5" style="text-align:center; color:var(--k-text-muted);">Mostrando primeros 500 registros de ${filtered.length}...</td></tr>` : '';
+  $('#tbServerDetail').innerHTML = html + suffix;
+}
+
+// --- Event Listeners ---
+document.addEventListener('DOMContentLoaded', () => {
+  const dz = $('#dz');
+  const fi = $('#fileInput');
+
+  // File selection
+  $('#pickBtn').addEventListener('click', () => fi.click());
+  fi.addEventListener('change', e => {
+    if (e.target.files.length > 0) processExcel(e.target.files[0]);
+  });
+
+  // Drag & Drop
+  dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('dragover'); });
+  dz.addEventListener('dragleave', e => { e.preventDefault(); dz.classList.remove('dragover'); });
+  dz.addEventListener('drop', e => {
+    e.preventDefault();
+    dz.classList.remove('dragover');
+    if (e.dataTransfer.files.length > 0) processExcel(e.dataTransfer.files[0]);
+  });
+
+  // Change file btn
+  $('#btnChangeFile').addEventListener('click', () => {
+    $('#shell').classList.add('hide');
+    $('#gate').classList.remove('hide');
+  });
+
+  // Detail table filters
+  $$('#detailFilters .pill').forEach(pill => {
+    pill.addEventListener('click', () => {
+      $$('#detailFilters .pill').forEach(p => p.classList.remove('active'));
+      pill.classList.add('active');
+      state.currentFilter = pill.getAttribute('data-filter');
+      renderDetailTable();
+    });
+  });
+});
+</script>
+</body>
+</html>
